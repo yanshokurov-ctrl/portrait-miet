@@ -204,7 +204,6 @@ class FinishTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skip("Разработчик 1: убери эту строку, когда реализуешь навигацию")
 class NavigationTests(unittest.TestCase):
 
     def setUp(self):

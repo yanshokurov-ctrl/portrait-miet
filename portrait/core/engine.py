@@ -184,11 +184,11 @@ class SurveySession:
         """
         # добавлено разработчиком №1 в ходе шага 4
 
-        # Считаем количество ответов (только тех, что есть в словаре)
-        answered_count = len(self._answers)
+        # Считаем количество ответов (пропуски не считаются)
+        answered_count = sum(1 for answer in self._answers.values() if not answer.skipped)
 
-        # Номер текущего вопроса или "следующий шаг" при завершении
-        current_number = self._index + 1 if not self.is_finished() else len(self._questions) + 1
+        # Номер текущего вопроса; когда вопросы закончились — равен общему числу (0, если вопросов нет)
+        current_number = self._index + 1 if not self.is_finished() else len(self._questions)
 
         return Progress(current_number, len(self._questions), answered_count)
 
