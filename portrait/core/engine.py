@@ -39,8 +39,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from portrait.core.contracts import METHODS, MethodBlock
-from portrait.core.errors import InvalidAnswerError, SessionError  # noqa: F401 — нужны разработчикам 1 и 2
-from portrait.core.models import Answer, MethodAnswers, MethodResult, Question
+from portrait.core.errors import InvalidAnswerError, SessionError
+from portrait.core.models import Answer, MethodAnswers, MethodResult, Question, QuestionType
 
 
 @dataclass(frozen=True)
@@ -248,7 +248,13 @@ class SurveySession:
         Если на вопрос уже отвечали (пользователь вернулся назад) — ответ заменяется.
         Если вопросы закончились — SessionError.
         """
-        raise NotImplementedError("Разработчик 2: answer()")
+        question = self._question_to_answer()
+        if not question.is_valid_value(value):
+            raise InvalidAnswerError(f"Недопустимый ответ {value!r}. {self._allowed_values_hint(question)}")
+
+        # Запись по id вопроса: повторный ответ заменяет прежний, дублей не бывает.
+        self._answers[question.id] = Answer(question.id, value)
+        self._index += 1
 
     def skip(self) -> None:
         """Пропускает текущий вопрос (сохраняет Answer.skip) и переходит к следующему.
@@ -256,7 +262,26 @@ class SurveySession:
         Если на вопрос уже отвечали — ответ заменяется пропуском.
         Если вопросы закончились — SessionError.
         """
-        raise NotImplementedError("Разработчик 2: skip()")
+        question = self._question_to_answer()
+        self._answers[question.id] = Answer.skip(question.id)
+        self._index += 1
+
+    def _question_to_answer(self) -> Question:
+        """Возвращает текущий вопрос или выбрасывает SessionError, если вопросы закончились."""
+        question = self.current_question()
+        if question is None:
+            raise SessionError("Вопросы закончились: отвечать больше не на что")
+        return question
+
+    @staticmethod
+    def _allowed_values_hint(question: Question) -> str:
+        """Подсказка для пользователя: какой ответ подходит к вопросу."""
+        if question.type in (QuestionType.CHOICE, QuestionType.SCALE):
+            variants = ", ".join(f"{option.value} — {option.label}" for option in question.options)
+            return f"Допустимые варианты: {variants}"
+        if question.type == QuestionType.NUMBER:
+            return "Нужно ввести число"
+        return "Нужно ввести непустой текст"
 
     def grouped_answers(self) -> dict[str, MethodAnswers]:
         """Группирует ответы по методикам.
@@ -267,4 +292,9 @@ class SurveySession:
         - внутри — ВСЕ вопросы методики в порядке показа;
         - Answer — ответ или пропуск, None — пользователь до вопроса не дошёл.
         """
-        raise NotImplementedError("Разработчик 2: grouped_answers()")
+        grouped: dict[str, MethodAnswers] = {method.id: {} for method in self._methods}
+        # self._questions уже идут в порядке показа, поэтому и внутри методики порядок сохранится.
+        # У сломанных методик вопросов нет — их словарь останется пустым.
+        for question in self._questions:
+            grouped[question.method_id][question.id] = self._answers.get(question.id)
+        return grouped

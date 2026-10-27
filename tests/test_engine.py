@@ -285,7 +285,6 @@ class NavigationTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skip("Разработчик 2: убери эту строку, когда реализуешь ответы и группировку")
 class AnswersTests(unittest.TestCase):
 
     def setUp(self):
