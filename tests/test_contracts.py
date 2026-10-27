@@ -6,7 +6,7 @@ DemoMethod — пример методики, которая выполняет 
 
 import unittest
 
-from portrait.core.contracts import METHODS, MethodBlock, method_name
+from portrait.core.contracts import MIN_ANSWERED_SHARE, METHODS, MethodBlock, method_name, result_status
 from portrait.core.models import (
     Answer,
     MethodAnswers,
@@ -122,6 +122,28 @@ class MethodBlockTests(unittest.TestCase):
     def test_process_does_not_keep_state(self):
         answers = {question_id: Answer(question_id, 1) for question_id in self.question_ids}
         self.assertEqual(self.method.process(answers), self.method.process(answers))
+
+
+class ResultStatusTests(unittest.TestCase):
+    """Общее правило статуса по доле ответов (MIN_ANSWERED_SHARE = 0.5)."""
+
+    def test_all_answered(self):
+        self.assertEqual(result_status(10, 10), Status.OK)
+
+    def test_half_answered_is_partial(self):
+        self.assertEqual(result_status(5, 10), Status.PARTIAL)
+        self.assertEqual(result_status(9, 10), Status.PARTIAL)
+
+    def test_less_than_half_is_no_data(self):
+        self.assertEqual(result_status(4, 10), Status.NO_DATA)
+        self.assertEqual(result_status(1, 3), Status.NO_DATA)
+
+    def test_nothing_answered(self):
+        self.assertEqual(result_status(0, 10), Status.NO_DATA)
+        self.assertEqual(result_status(0, 0), Status.NO_DATA)
+
+    def test_share_constant(self):
+        self.assertEqual(MIN_ANSWERED_SHARE, 0.5)
 
 
 if __name__ == "__main__":

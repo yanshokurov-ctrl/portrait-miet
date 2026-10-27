@@ -6,8 +6,9 @@ import unittest
 from pathlib import Path
 
 from portrait.core.contracts import METHODS, MethodBlock
+from portrait.core.errors import SourceError
 from portrait.core.models import Answer, QuestionType, Status
-from portrait.methods.json_method import JsonMethod
+from portrait.methods.json_method import JsonMethod, points_word
 from portrait.sources.base import QuestionSource
 from portrait.sources.json_source import JsonSource
 
@@ -80,9 +81,18 @@ class JsonMethodProcessTests(unittest.TestCase):
     def test_stopped_midway_gives_partial(self):
         answers = {qid: None for qid in self.ids}
         answers[self.ids[0]] = Answer(self.ids[0], 1)
+        answers[self.ids[1]] = Answer(self.ids[1], 2)
         result = self.method.process(answers)
         self.assertEqual(result.status, Status.PARTIAL)
-        self.assertEqual(result.answered, 1)
+        self.assertEqual(result.answered, 2)
+
+    def test_too_few_answers_gives_no_data(self):
+        # 1 из 3 — меньше MIN_ANSWERED_SHARE (50%)
+        answers = {qid: None for qid in self.ids}
+        answers[self.ids[0]] = Answer(self.ids[0], 1)
+        result = self.method.process(answers)
+        self.assertEqual(result.status, Status.NO_DATA)
+        self.assertIn("1 из 3", result.errors[0])
 
     def test_all_skipped_gives_no_data(self):
         result = self.method.process({qid: Answer.skip(qid) for qid in self.ids})
@@ -101,6 +111,13 @@ class JsonMethodProcessTests(unittest.TestCase):
         result = method.process({"m05_q01": Answer("m05_q01", 2.5), "m05_q02": Answer("m05_q02", "ответ")})
         self.assertEqual(result.status, Status.OK)
         self.assertEqual(result.scores[0].raw, 2.5)
+
+    def test_points_word(self):
+        cases = {0: "баллов", 1: "балл", 2: "балла", 4: "балла", 5: "баллов", 11: "баллов",
+                 12: "баллов", 21: "балл", 22: "балла", 111: "баллов", 2.5: "балла", 6.0: "баллов"}
+        for number, word in cases.items():
+            with self.subTest(number=number):
+                self.assertEqual(points_word(number), word)
 
     def test_get_questions_returns_copy(self):
         self.method.get_questions().clear()
@@ -122,7 +139,7 @@ class JsonSourceErrorTests(unittest.TestCase):
         (self.folder / name).write_text(text, encoding="utf-8")
 
     def assert_load_error(self, file_name: str, message_part: str) -> None:
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(SourceError) as context:
             JsonSource(self.folder).load_methods()
         self.assertIn(file_name, str(context.exception))
         self.assertIn(message_part, str(context.exception))
@@ -138,7 +155,7 @@ class JsonSourceErrorTests(unittest.TestCase):
         self.assertEqual(JsonSource(self.folder).load_methods(), [])
 
     def test_missing_folder(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(SourceError):
             JsonSource(self.folder / "нет такой папки").load_methods()
 
     def test_broken_json(self):

@@ -280,6 +280,31 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(session.progress(), Progress(number=0, total=0, answered=0))
 
 
+class CurrentAnswerTests(unittest.TestCase):
+    """current_answer() — прежний ответ при возврате назад."""
+
+    def setUp(self):
+        self.session = SurveySession([StubMethod("m01", 2)])
+
+    def test_no_answer_yet(self):
+        self.assertIsNone(self.session.current_answer())
+
+    def test_answer_shown_after_back(self):
+        self.session.answer(3)
+        self.session.back()
+        self.assertEqual(self.session.current_answer(), Answer("m01_q01", 3))
+
+    def test_skip_shown_after_back(self):
+        self.session.skip()
+        self.session.back()
+        self.assertTrue(self.session.current_answer().skipped)
+
+    def test_none_when_finished(self):
+        self.session.answer(1)
+        self.session.answer(1)
+        self.assertIsNone(self.session.current_answer())
+
+
 # ---------------------------------------------------------------------------
 # Разработчик 2: приём ответов и группировка
 # ---------------------------------------------------------------------------

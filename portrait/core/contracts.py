@@ -20,6 +20,7 @@
    - answered — сколько вопросов отвечено, total — сколько всего вопросов.
 5. Пропуски — обычная ситуация, а не ошибка: process не должен из-за них
    падать, а должен вернуть статус PARTIAL или NO_DATA.
+   Какой именно статус — решает общее правило result_status(answered, total).
    Если process всё же выбросит исключение, движок поймает его и поставит
    методике статус ERROR — остальные методики продолжат работу.
 6. Методика не хранит состояние между вызовами: process можно вызвать
@@ -30,7 +31,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from portrait.core.models import MethodAnswers, MethodResult, Question
+from portrait.core.models import MethodAnswers, MethodResult, Question, Status
 
 
 # Официальный список 20 методик. Порядок в словаре — порядок прохождения опроса.
@@ -66,6 +67,29 @@ def method_name(method_id: str) -> str:
     if method_id not in METHODS:
         raise KeyError(f"Методики {method_id!r} нет в справочнике METHODS")
     return METHODS[method_id]
+
+
+# Минимальная доля отвеченных вопросов, при которой результат методики ещё считается.
+# Если отвечено меньше — результата нет (NO_DATA): по нескольким ответам выводы делать нельзя.
+MIN_ANSWERED_SHARE = 0.5
+
+
+def result_status(answered: int, total: int) -> Status:
+    """Общее правило: какой статус ставить методике по числу ответов.
+
+    - отвечено всё                         → OK;
+    - отвечено не меньше MIN_ANSWERED_SHARE → PARTIAL (результат с оговоркой);
+    - отвечено меньше или ничего           → NO_DATA.
+
+    Пропущенные вопросы (Answer.skip) и непройденные (None) отвеченными не считаются.
+    """
+    if total <= 0 or answered <= 0:
+        return Status.NO_DATA
+    if answered >= total:
+        return Status.OK
+    if answered / total >= MIN_ANSWERED_SHARE:
+        return Status.PARTIAL
+    return Status.NO_DATA
 
 
 class MethodBlock(ABC):

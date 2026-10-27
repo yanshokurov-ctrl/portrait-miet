@@ -3,6 +3,7 @@ import json               # Для чтения JSON-файлов
 
 # Справочник методик — по нему определяем порядок
 from ..core.contracts import METHODS, MethodBlock
+from ..core.errors import SourceError
 
 # Импортируем наш класс-методику из соседней папки methods
 from ..methods.json_method import JsonMethod
@@ -29,7 +30,7 @@ class JsonSource(QuestionSource):
 
     def load_methods(self) -> list[MethodBlock]:
         if not self.folder_path.is_dir():
-            raise ValueError(f"Папка с методиками не найдена: {self.folder_path}")
+            raise SourceError(f"Папка с методиками не найдена: {self.folder_path}")
 
         methods_by_id = {}
 
@@ -45,10 +46,10 @@ class JsonSource(QuestionSource):
                 method = JsonMethod(data)
 
             except (OSError, json.JSONDecodeError, ValueError) as e:
-                raise ValueError(f"Ошибка при чтении {file_path.name}: {e}") from e
+                raise SourceError(f"Ошибка при чтении {file_path.name}: {e}") from e
 
             if method.id in methods_by_id:
-                raise ValueError(f"Ошибка при чтении {file_path.name}: методика {method.id} уже загружена из другого файла")
+                raise SourceError(f"Ошибка при чтении {file_path.name}: методика {method.id} уже загружена из другого файла")
             methods_by_id[method.id] = method
 
         # Методики должны возвращаться строго в том порядке, как в справочнике METHODS

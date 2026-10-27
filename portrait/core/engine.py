@@ -39,7 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from portrait.core.contracts import METHODS, MethodBlock
-from portrait.core.errors import InvalidAnswerError, SessionError
+from portrait.core.errors import BlockError, InvalidAnswerError, SessionError
 from portrait.core.models import Answer, MethodAnswers, MethodResult, Question, QuestionType
 
 
@@ -105,16 +105,16 @@ class SurveySession:
         """Берёт вопросы методики и проверяет, что они соответствуют контракту."""
         questions = method.get_questions()
         if not isinstance(questions, list) or not questions:
-            raise ValueError("get_questions() должен вернуть непустой список вопросов")
+            raise BlockError("get_questions() должен вернуть непустой список вопросов")
 
         known_ids = {question.id for question in self._questions}
         for question in questions:
             if not isinstance(question, Question):
-                raise ValueError(f"в списке вопросов {type(question).__name__} вместо Question")
+                raise BlockError(f"в списке вопросов {type(question).__name__} вместо Question")
             if question.method_id != method.id:
-                raise ValueError(f"вопрос {question.id} относится к методике {question.method_id}")
+                raise BlockError(f"вопрос {question.id} относится к методике {question.method_id}")
             if question.id in known_ids:
-                raise ValueError(f"id вопроса {question.id} повторяется")
+                raise BlockError(f"id вопроса {question.id} повторяется")
             known_ids.add(question.id)
 
         return sorted(questions, key=lambda question: question.order)
@@ -165,6 +165,15 @@ class SurveySession:
             return self._questions[self._index]
         else:
             return None
+
+    def current_answer(self) -> Answer | None:
+        """Возвращает уже данный ответ (или пропуск) на текущий вопрос.
+
+        Нужен, когда пользователь вернулся назад: интерфейс показывает прежний ответ.
+        None — на текущий вопрос ещё не отвечали или вопросы закончились.
+        """
+        question = self.current_question()
+        return None if question is None else self._answers.get(question.id)
 
     def is_finished(self) -> bool:
         """True, если пользователь прошёл все вопросы (текущего вопроса нет).

@@ -14,8 +14,20 @@ id вопроса (m01_q01), method_id и order в файле не пишутс�
 их проставляет JsonMethod по порядку вопросов.
 """
 
-from portrait.core.contracts import MethodBlock, METHODS
+from portrait.core.contracts import MIN_ANSWERED_SHARE, MethodBlock, METHODS, result_status
 from portrait.core.models import MethodAnswers, MethodResult, Option, Question, ScaleScore, Status
+
+
+def points_word(number: int | float) -> str:
+    """Склоняет слово «балл»: 1 балл, 2 балла, 5 баллов, 2.5 балла."""
+    if isinstance(number, float) and not number.is_integer():
+        return "балла"
+    number = abs(int(number))
+    if number % 10 == 1 and number % 100 != 11:
+        return "балл"
+    if 2 <= number % 10 <= 4 and not 12 <= number % 100 <= 14:
+        return "балла"
+    return "баллов"
 
 
 class JsonMethod(MethodBlock):
@@ -62,8 +74,15 @@ class JsonMethod(MethodBlock):
             if answer is not None and not answer.skipped
         ]
 
-        if not answered:
-            return MethodResult.no_data(self.id, self.name, "Нет ни одного ответа", total=total)
+        # Статус по общему правилу из contracts.py
+        status = result_status(len(answered), total)
+        if status == Status.NO_DATA:
+            if not answered:
+                reason = "Нет ни одного ответа"
+            else:
+                reason = (f"Отвечено {len(answered)} из {total} вопросов — "
+                          f"меньше допустимого минимума ({MIN_ANSWERED_SHARE:.0%})")
+            return MethodResult.no_data(self.id, self.name, reason, total=total)
 
         # Временный подсчёт до шага 10: сумма числовых ответов
         total_score = sum(
@@ -74,9 +93,9 @@ class JsonMethod(MethodBlock):
         return MethodResult(
             method_id=self.id,
             method_name=self.name,
-            status=Status.OK if len(answered) == total else Status.PARTIAL,  # PARTIAL — есть пропуски
+            status=status,  # OK или PARTIAL (есть пропуски)
             scores=[ScaleScore(scale='Сумма баллов', raw=total_score)],
-            interpretation=f"Вы набрали {total_score} баллов",
+            interpretation=f"Вы набрали {total_score} {points_word(total_score)}",
             answered=len(answered),
             total=total,
         )
