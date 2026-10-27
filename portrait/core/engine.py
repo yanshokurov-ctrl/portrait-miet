@@ -155,12 +155,16 @@ class SurveySession:
         return result
 
     # ------------------------------------------------------------------
-    # Разработчик 1: показ вопросов и навигация
+    # Разработчик 1: показ вопросов и навигация (выполнено написание методов)
     # ------------------------------------------------------------------
 
     def current_question(self) -> Question | None:
         """Возвращает текущий вопрос или None, если вопросы закончились."""
-        raise NotImplementedError("Разработчик 1: current_question()")
+        # добавлено разработчиком №1 в ходе шага 4
+        if self._index < len(self._questions):
+            return self._questions[self._index]
+        else:
+            return None
 
     def is_finished(self) -> bool:
         """True, если пользователь прошёл все вопросы (текущего вопроса нет).
@@ -168,7 +172,8 @@ class SurveySession:
         Опрос без вопросов (все методики сломаны) сразу считается пройденным.
         Если пользователь вернулся назад с конца опроса, это снова False.
         """
-        raise NotImplementedError("Разработчик 1: is_finished()")
+        # добавлено разработчиком №1 в ходе шага 4
+        return self.current_question() is None
 
     def progress(self) -> Progress:
         """Возвращает прогресс: номер текущего вопроса, сколько всего, сколько отвечено.
@@ -177,7 +182,15 @@ class SurveySession:
         Пропущенные вопросы в answered не считаются.
         Когда вопросы закончились, number равен total.
         """
-        raise NotImplementedError("Разработчик 1: progress()")
+        # добавлено разработчиком №1 в ходе шага 4
+
+        # Считаем количество ответов (пропуски не считаются)
+        answered_count = sum(1 for answer in self._answers.values() if not answer.skipped)
+
+        # Номер текущего вопроса; когда вопросы закончились — равен общему числу (0, если вопросов нет)
+        current_number = self._index + 1 if not self.is_finished() else len(self._questions)
+
+        return Progress(current_number, len(self._questions), answered_count)
 
     def next(self) -> None:
         """Переходит к следующему вопросу.
@@ -187,7 +200,24 @@ class SurveySession:
         иначе — SessionError («Сначала ответьте на вопрос или пропустите его»).
         Если вопросы закончились — SessionError.
         """
-        raise NotImplementedError("Разработчик 1: next()")
+        # добавлено разработчиком №1 в ходе шага 4
+
+        # Проверяем, есть ли вообще следующий шаг
+        if self.is_finished():
+            raise SessionError("Вопросов больше нет")
+        
+        # Получаем ID текущего вопроса
+        current_qid = self.current_question().id
+
+        """
+        Проверяем, есть ли у нас ответ для этого вопроса.
+        Пропуски считаются за ответы, поэтому просто проверяем наличие ключа
+        """
+        if current_qid not in self._answers:
+            raise SessionError(f"Ответьте на вопрос '{current_qid}' или пропустите его")
+
+        # Всё хорошо, можно двигаться дальше
+        self._index += 1
 
     def back(self) -> None:
         """Возвращается к предыдущему вопросу.
@@ -197,7 +227,12 @@ class SurveySession:
         На первом вопросе — SessionError («Это первый вопрос»).
         С конца опроса (is_finished() == True) — возвращает к последнему вопросу.
         """
-        raise NotImplementedError("Разработчик 1: back()")
+        # добавлено разработчиком №1 в ходе шага 4
+        if self._index == 0:
+            raise SessionError("Вы уже находитесь на первом вопросе")
+        
+        # Просто двигаемся назад
+        self._index -= 1
 
     # ------------------------------------------------------------------
     # Разработчик 2: приём ответов и группировка
