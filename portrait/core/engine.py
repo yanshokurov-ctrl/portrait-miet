@@ -58,6 +58,22 @@ class Progress:
     answered: int
 
 
+@dataclass(frozen=True)
+class MethodProgress:
+    """Где пользователь находится по методикам.
+
+    number          — номер текущей методики в опросе, начиная с 1;
+    total           — сколько методик в опросе (сломанные без вопросов не считаются);
+    question_number — номер текущего вопроса внутри методики, начиная с 1;
+    question_total  — сколько вопросов в текущей методике.
+    """
+
+    number: int
+    total: int
+    question_number: int
+    question_total: int
+
+
 class SurveySession:
     """Один проход опроса одним пользователем."""
 
@@ -174,6 +190,27 @@ class SurveySession:
         """
         question = self.current_question()
         return None if question is None else self._answers.get(question.id)
+
+    def current_method(self) -> MethodBlock | None:
+        """Методика текущего вопроса или None, если вопросы закончились."""
+        question = self.current_question()
+        if question is None:
+            return None
+        return next(method for method in self._methods if method.id == question.method_id)
+
+    def method_progress(self) -> MethodProgress | None:
+        """Номер текущей методики и вопроса внутри неё; None, если вопросы закончились."""
+        question = self.current_question()
+        if question is None:
+            return None
+        method_ids = [method.id for method in self._methods if method.id not in self._broken]
+        method_questions = [q for q in self._questions if q.method_id == question.method_id]
+        return MethodProgress(
+            number=method_ids.index(question.method_id) + 1,
+            total=len(method_ids),
+            question_number=method_questions.index(question) + 1,
+            question_total=len(method_questions),
+        )
 
     def is_finished(self) -> bool:
         """True, если пользователь прошёл все вопросы (текущего вопроса нет).

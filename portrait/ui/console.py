@@ -1,7 +1,14 @@
-"""Консольный интерфейс опроса (прототип этапа 1).
+"""Консольный интерфейс опроса (прототип).
 
 Только показывает вопросы и передаёт действия пользователя в движок.
 Подсчёт баллов, порядок вопросов и проверка ответов — в ядре.
+
+Правила прохождения:
+- каждая методика — отдельный тест: перед её вопросами показываются
+  «Методика N из M» и инструкция (название методики по ТЗ не показывается);
+- завершить опрос и получить результат можно только после того,
+  как пройдены все методики;
+- если опрос прерван (Ctrl+C, закрыт ввод), результат не сохраняется.
 
 Ввод и вывод передаются параметрами (input_fn, print_fn), чтобы
 интерфейс можно было проверять автотестами без настоящей консоли.
@@ -13,7 +20,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from portrait.core.collector import collect, to_text
-from portrait.core.contracts import METHODS
 from portrait.core.engine import SurveySession
 from portrait.core.errors import InvalidAnswerError, SessionError, SourceError
 from portrait.core.models import Answer, Question, QuestionType
@@ -26,14 +32,17 @@ PrintFn = Callable[..., None]
 CMD_SKIP = "п"
 CMD_BACK = "н"
 CMD_NEXT = "д"
-CMD_STOP = "с"
+CMD_FINISH = "з"
 CMD_HELP = "?"
 
 HELP_TEXT = (
     "Как отвечать: введите номер варианта, число или текст — в зависимости от вопроса.\n"
     f"Команды: {CMD_SKIP} — пропустить вопрос, {CMD_BACK} — назад, "
-    f"{CMD_NEXT} — дальше без изменения ответа, {CMD_STOP} — закончить опрос, {CMD_HELP} — помощь."
+    f"{CMD_NEXT} — дальше без изменения ответа, {CMD_HELP} — помощь.\n"
+    f"Команда {CMD_FINISH} — завершить опрос — станет доступна, когда будут пройдены все методики."
 )
+
+SEPARATOR = "=" * 60
 
 
 # ---------------------------------------------------------------------------
@@ -51,11 +60,23 @@ def format_answer(question: Question, answer: Answer) -> str:
     return str(answer.value)
 
 
+def show_method_header(number: int, total: int, instruction: str, print_fn: PrintFn) -> None:
+    """Печатает заголовок методики: номер и инструкцию (без названия методики — по ТЗ)."""
+    print_fn("")
+    print_fn(SEPARATOR)
+    print_fn(f"Методика {number} из {total}")
+    if instruction:
+        print_fn("")
+        print_fn("Инструкция:")
+        print_fn(instruction)
+    print_fn(SEPARATOR)
+
+
 def show_question(question: Question, number: int, total: int,
-                  previous: Answer | None, print_fn: PrintFn) -> None:
+                  previous: Answer | None, print_fn: PrintFn, overall: str = "") -> None:
     """Печатает вопрос: номер, текст, варианты и подсказку, как отвечать."""
     print_fn("")
-    print_fn(f"Вопрос {number} из {total}")
+    print_fn(f"Вопрос {number} из {total}{overall}")
     print_fn(question.text)
     if question.options:
         for option_number, option in enumerate(question.options, start=1):
@@ -95,49 +116,63 @@ def parse_answer(question: Question, text: str) -> int | float | str:
 # ---------------------------------------------------------------------------
 
 
-def run_survey(session: SurveySession, input_fn: InputFn = input, print_fn: PrintFn = print) -> None:
-    """Проводит пользователя по вопросам до конца опроса или до команды «закончить».
+def run_survey(session: SurveySession, input_fn: InputFn = input, print_fn: PrintFn = print) -> bool:
+    """Проводит пользователя по всем методикам.
 
-    Ctrl+C или конец ввода тоже завершают опрос: ответы, данные до этого,
-    сохраняются и попадают в отчёт.
+    Возвращает True, если пользователь прошёл все методики и завершил опрос
+    командой «з», и False, если опрос прерван (Ctrl+C или конец ввода).
     """
     print_fn(HELP_TEXT)
     shown_method = None
 
-    while not session.is_finished():
-        question = session.current_question()
-        if question.method_id != shown_method:
-            shown_method = question.method_id
+    while True:
+        if session.is_finished():
             print_fn("")
-            print_fn(f"=== {METHODS[shown_method]} ===")
-
-        progress = session.progress()
-        show_question(question, progress.number, progress.total, session.current_answer(), print_fn)
+            print_fn(SEPARATOR)
+            print_fn("Все методики пройдены.")
+            print_fn(f"{CMD_FINISH} — завершить опрос и получить результат, "
+                     f"{CMD_BACK} — вернуться к последнему вопросу")
+            print_fn(SEPARATOR)
+            shown_method = None  # после возврата назад снова покажем заголовок методики
+        else:
+            question = session.current_question()
+            method_progress = session.method_progress()
+            if question.method_id != shown_method:
+                shown_method = question.method_id
+                show_method_header(method_progress.number, method_progress.total,
+                                   session.current_method().instruction, print_fn)
+            progress = session.progress()
+            show_question(question, method_progress.question_number, method_progress.question_total,
+                          session.current_answer(), print_fn,
+                          overall=f"   (всего: {progress.number} из {progress.total})")
 
         try:
             text = input_fn("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print_fn("")
-            print_fn("Опрос прерван. Ответы, данные до этого, сохранены.")
-            return
+            print_fn("Опрос прерван.")
+            return False
 
         command = text.lower()
         try:
-            if command == CMD_STOP:
-                print_fn("Опрос завершён досрочно. Ответы, данные до этого, сохранены.")
-                return
-            elif command == CMD_SKIP:
-                session.skip()
+            if command == CMD_FINISH:
+                if not session.is_finished():
+                    raise SessionError("Завершить опрос можно только после того, как пройдены все методики")
+                return True
             elif command == CMD_BACK:
                 session.back()
-            elif command == CMD_NEXT:
-                session.next()
             elif command == CMD_HELP:
                 print_fn(HELP_TEXT)
+            elif session.is_finished():
+                print_fn(f"! Введите {CMD_FINISH}, чтобы завершить опрос, или {CMD_BACK}, чтобы вернуться назад")
+            elif command == CMD_SKIP:
+                session.skip()
+            elif command == CMD_NEXT:
+                session.next()
             elif not text:
                 print_fn(f"! Введите ответ или команду ({CMD_HELP} — помощь)")
             else:
-                session.answer(parse_answer(question, text))
+                session.answer(parse_answer(session.current_question(), text))
         except (InvalidAnswerError, SessionError) as error:
             # Недопустимый ответ или действие — сообщаем и задаём тот же вопрос снова
             print_fn(f"! {error}")
@@ -148,7 +183,7 @@ def run(methods_folder: str | Path | None = None, out_path: str | Path = "portra
         input_fn: InputFn = input, print_fn: PrintFn = print) -> int:
     """Полный сценарий: загрузка методик → опрос → подсчёт → отчёт на экран и в JSON.
 
-    Возвращает код завершения программы: 0 — успешно, 1 — ошибка.
+    Возвращает код завершения программы: 0 — успешно, 1 — ошибка или опрос прерван.
     """
     try:
         source = JsonSource(methods_folder) if methods_folder is not None else JsonSource()
@@ -158,9 +193,13 @@ def run(methods_folder: str | Path | None = None, out_path: str | Path = "portra
         print_fn(f"Не удалось загрузить методики: {error}")
         return 1
 
+    total_methods = session.method_progress().total if not session.is_finished() else 0
     print_fn("ПОРТРЕТ ЛИЧНОСТИ — опрос")
-    print_fn(f"Вопросов: {session.progress().total}")
-    run_survey(session, input_fn, print_fn)
+    print_fn(f"Методик: {total_methods}, вопросов: {session.progress().total}")
+
+    if not run_survey(session, input_fn, print_fn):
+        print_fn("Результат не сохранён: опрос нужно пройти до конца.")
+        return 1
 
     portrait = collect(session.finish(), respondent_id)
     print_fn("")

@@ -14,6 +14,9 @@ from portrait.sources.json_source import JsonSource
 
 SCALE_OPTIONS = [{"value": 1, "label": "Нет"}, {"value": 2, "label": "Иногда"}, {"value": 3, "label": "Да"}]
 
+# Небольшие тестовые методики (m01–m03, по 3 вопроса) — чтобы тесты не зависели от настоящих данных
+FIXTURES = Path(__file__).parent / "fixtures" / "methods"
+
 
 def make_method_data(method_id: str = "m05", questions_count: int = 3) -> dict:
     """Словарь методики со шкальными вопросами для тестов."""
@@ -27,10 +30,13 @@ def make_method_data(method_id: str = "m05", questions_count: int = 3) -> dict:
 
 
 class JsonSourceStubsTests(unittest.TestCase):
-    """Загрузка заглушек из portrait/methods/data."""
+    """Загрузка тестовых методик из tests/fixtures/methods."""
 
     def setUp(self):
-        self.methods = JsonSource().load_methods()
+        self.methods = JsonSource(FIXTURES).load_methods()
+
+    def test_instruction_loaded(self):
+        self.assertEqual(self.methods[0].instruction, "Тестовая инструкция первой методики.")
 
     def test_source_follows_contract(self):
         self.assertIsInstance(JsonSource(), QuestionSource)

@@ -8,7 +8,7 @@
 import unittest
 
 from portrait.core.contracts import METHODS, MethodBlock
-from portrait.core.engine import Progress, SurveySession
+from portrait.core.engine import MethodProgress, Progress, SurveySession
 from portrait.core.errors import InvalidAnswerError, SessionError
 from portrait.core.models import (
     Answer,
@@ -278,6 +278,34 @@ class NavigationTests(unittest.TestCase):
         self.assertTrue(session.is_finished())
         self.assertIsNone(session.current_question())
         self.assertEqual(session.progress(), Progress(number=0, total=0, answered=0))
+
+
+class MethodProgressTests(unittest.TestCase):
+    """current_method() и method_progress() — где пользователь по методикам."""
+
+    def setUp(self):
+        self.session = SurveySession([StubMethod("m01", 2), FailingQuestionsMethod("m02"), StubMethod("m03", 3)])
+
+    def test_start(self):
+        self.assertEqual(self.session.current_method().id, "m01")
+        self.assertEqual(self.session.method_progress(), MethodProgress(1, 2, 1, 2))
+
+    def test_broken_method_not_counted(self):
+        self.session.answer(1)
+        self.session.answer(1)
+        self.assertEqual(self.session.current_method().id, "m03")
+        self.assertEqual(self.session.method_progress(), MethodProgress(2, 2, 1, 3))
+
+    def test_question_inside_method(self):
+        for _ in range(3):
+            self.session.answer(1)
+        self.assertEqual(self.session.method_progress(), MethodProgress(2, 2, 2, 3))
+
+    def test_finished(self):
+        for _ in range(5):
+            self.session.answer(1)
+        self.assertIsNone(self.session.current_method())
+        self.assertIsNone(self.session.method_progress())
 
 
 class CurrentAnswerTests(unittest.TestCase):

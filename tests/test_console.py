@@ -2,7 +2,8 @@
 
 Ввод пользователя подменяется списком строк, вывод собирается в список,
 поэтому тесты не требуют настоящей консоли.
-Методики — заглушки из portrait/methods/data (m01–m03, по 3 вопроса).
+Основные тесты идут на небольших тестовых методиках (tests/fixtures/methods:
+m01–m03, по 3 вопроса), последний — на всех 20 настоящих методиках.
 """
 
 import io
@@ -13,14 +14,18 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from main import main
+from portrait.core.contracts import METHODS
 from portrait.core.engine import SurveySession
 from portrait.core.errors import InvalidAnswerError
 from portrait.core.models import Answer, Option, Question, QuestionType, Status
 from portrait.sources.json_source import JsonSource
 from portrait.ui.console import parse_answer, run, run_survey
 
-# Полное прохождение заглушек: m01 (3 шкалы), m02 (выбор, число, шкала), m03 (шкала, выбор, текст)
+FIXTURES = Path(__file__).parent / "fixtures" / "methods"
+
+# Ответы на все вопросы тестовых методик: m01 (3 шкалы), m02 (выбор, число, шкала), m03 (шкала, выбор, текст)
 FULL_INPUT = ["1", "2", "3", "1", "4", "3", "2", "1", "Взвешиваю за и против"]
+FINISH = "з"
 
 
 class FakeConsole:
@@ -44,7 +49,7 @@ class FakeConsole:
 
 
 def new_session():
-    return SurveySession(JsonSource().load_methods())
+    return SurveySession(JsonSource(FIXTURES).load_methods())
 
 
 class ParseAnswerTests(unittest.TestCase):
@@ -79,65 +84,91 @@ class RunSurveyTests(unittest.TestCase):
     def run_with(self, lines):
         session = new_session()
         console = FakeConsole(lines)
-        run_survey(session, console.input, console.print)
-        return session, console
+        completed = run_survey(session, console.input, console.print)
+        return session, console, completed
 
     def test_full_survey(self):
-        session, console = self.run_with(FULL_INPUT)
-        self.assertTrue(session.is_finished())
+        session, console, completed = self.run_with(FULL_INPUT + [FINISH])
+        self.assertTrue(completed)
         results = session.finish()
         self.assertEqual([result.status for result in results], [Status.OK] * 3)
         self.assertEqual(results[0].scores[0].raw, 6)   # 1 + 2 + 3
-        self.assertIn("Вопрос 1 из 9", console.text)
-        self.assertIn("Вопрос 9 из 9", console.text)
 
-    def test_method_titles_shown(self):
-        _, console = self.run_with(FULL_INPUT)
-        self.assertIn("=== Оценка особенностей личности ===", console.text)
-        self.assertIn("=== Критическое мышление ===", console.text)
+    def test_method_header_with_number_and_instruction(self):
+        _, console, _ = self.run_with(FULL_INPUT + [FINISH])
+        self.assertIn("Методика 1 из 3", console.text)
+        self.assertIn("Методика 3 из 3", console.text)
+        self.assertIn("Инструкция:\nТестовая инструкция первой методики.", console.text)
+
+    def test_method_names_not_shown(self):
+        # ТЗ: название методики респонденту не показывается
+        _, console, _ = self.run_with(FULL_INPUT + [FINISH])
+        for method_id in ("m01", "m02", "m03"):
+            self.assertNotIn(METHODS[method_id], console.text)
+
+    def test_question_numbers_inside_method_and_overall(self):
+        _, console, _ = self.run_with(FULL_INPUT + [FINISH])
+        self.assertIn("Вопрос 1 из 3   (всего: 1 из 9)", console.text)
+        self.assertIn("Вопрос 3 из 3   (всего: 9 из 9)", console.text)
+
+    def test_finish_not_allowed_before_end(self):
+        session, console, completed = self.run_with([FINISH, "1", FINISH] + FULL_INPUT[1:] + [FINISH])
+        self.assertEqual(console.text.count("! Завершить опрос можно только после того, как пройдены все методики"), 2)
+        self.assertTrue(completed)
+        self.assertEqual(session.grouped_answers()["m01"]["m01_q01"].value, 1)  # «з» не сбила ответы
+
+    def test_end_screen_waits_for_finish(self):
+        _, console, completed = self.run_with(FULL_INPUT + ["1", FINISH])
+        self.assertIn("Все методики пройдены.", console.text)
+        self.assertIn("! Введите з, чтобы завершить опрос", console.text)
+        self.assertTrue(completed)
+
+    def test_back_from_end_screen_and_change_answer(self):
+        session, console, completed = self.run_with(FULL_INPUT + ["н", "Другой ответ", FINISH])
+        self.assertIn("Ваш ответ: Взвешиваю за и против", console.text)
+        self.assertEqual(session.grouped_answers()["m03"]["m03_q03"].value, "Другой ответ")
+        self.assertTrue(completed)
 
     def test_invalid_answer_asks_again(self):
-        session, console = self.run_with(["7", "абв", "1"] + FULL_INPUT[1:])
+        session, console, _ = self.run_with(["7", "абв", "1"] + FULL_INPUT[1:] + [FINISH])
         self.assertIn("! Введите номер варианта от 1 до 3", console.text)
-        self.assertTrue(session.is_finished())
         self.assertEqual(session.grouped_answers()["m01"]["m01_q01"], Answer("m01_q01", 1))
 
     def test_skip(self):
-        session, _ = self.run_with(["п"] + FULL_INPUT[1:])
+        session, _, completed = self.run_with(["п"] + FULL_INPUT[1:] + [FINISH])
+        self.assertTrue(completed)
         self.assertTrue(session.grouped_answers()["m01"]["m01_q01"].skipped)
         self.assertEqual(session.finish()[0].status, Status.PARTIAL)
 
     def test_back_shows_previous_answer_and_changes_it(self):
-        session, console = self.run_with(["1", "н", "3"] + FULL_INPUT[1:])
+        session, console, _ = self.run_with(["1", "н", "3"] + FULL_INPUT[1:] + [FINISH])
         self.assertIn("Ваш ответ: 1 — Не согласен", console.text)
         self.assertEqual(session.grouped_answers()["m01"]["m01_q01"].value, 3)
 
     def test_back_then_keep_answer(self):
-        session, _ = self.run_with(["2", "н", "д"] + FULL_INPUT[1:])
+        session, _, completed = self.run_with(["2", "н", "д"] + FULL_INPUT[1:] + [FINISH])
         self.assertEqual(session.grouped_answers()["m01"]["m01_q01"].value, 2)
-        self.assertTrue(session.is_finished())
+        self.assertTrue(completed)
 
     def test_session_errors_are_shown(self):
-        _, console = self.run_with(["н", "д"] + FULL_INPUT)
+        _, console, _ = self.run_with(["н", "д"] + FULL_INPUT + [FINISH])
         self.assertIn("! Вы уже находитесь на первом вопросе", console.text)
         self.assertIn("Ответьте на вопрос", console.text)
 
     def test_empty_input_and_help(self):
-        _, console = self.run_with(["", "?"] + FULL_INPUT)
+        _, console, _ = self.run_with(["", "?"] + FULL_INPUT + [FINISH])
         self.assertIn("! Введите ответ или команду", console.text)
         self.assertGreaterEqual(console.text.count("Команды:"), 2)
 
-    def test_stop_midway(self):
-        session, console = self.run_with(["1", "2", "с"])
-        self.assertIn("Опрос завершён досрочно", console.text)
-        self.assertFalse(session.is_finished())
-        statuses = [result.status for result in session.finish()]
-        self.assertEqual(statuses, [Status.PARTIAL, Status.NO_DATA, Status.NO_DATA])
-
-    def test_end_of_input_stops_survey(self):
-        session, console = self.run_with(["1"])
+    def test_interrupted_survey_is_not_completed(self):
+        session, console, completed = self.run_with(["1", "2"])
+        self.assertFalse(completed)
         self.assertIn("Опрос прерван", console.text)
         self.assertFalse(session.is_finished())
+
+    def test_interrupted_on_end_screen(self):
+        _, _, completed = self.run_with(FULL_INPUT)
+        self.assertFalse(completed)
 
 
 class RunTests(unittest.TestCase):
@@ -150,10 +181,17 @@ class RunTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def run_console(self, lines, **kwargs):
+        console = FakeConsole(lines)
+        kwargs.setdefault("methods_folder", FIXTURES)
+        kwargs.setdefault("out_path", self.out)
+        code = run(input_fn=console.input, print_fn=console.print, **kwargs)
+        return code, console
+
     def test_full_run_saves_portrait(self):
-        console = FakeConsole(FULL_INPUT)
-        code = run(out_path=self.out, respondent_id="student-01", input_fn=console.input, print_fn=console.print)
+        code, console = self.run_console(FULL_INPUT + [FINISH], respondent_id="student-01")
         self.assertEqual(code, 0)
+        self.assertIn("Методик: 3, вопросов: 9", console.text)
         self.assertIn("ПОРТРЕТ ЛИЧНОСТИ", console.text)
         self.assertIn("готово 3, частично 0, ошибок 0, нет данных 17", console.text)
         self.assertIn(f"Результат сохранён в файл {self.out}", console.text)
@@ -163,25 +201,26 @@ class RunTests(unittest.TestCase):
         self.assertEqual(len(data["results"]), 20)
         self.assertEqual(data["summary"]["ok"], 3)
 
+    def test_interrupted_run_saves_nothing(self):
+        code, console = self.run_console(["1", "2"])
+        self.assertEqual(code, 1)
+        self.assertIn("Результат не сохранён", console.text)
+        self.assertFalse(self.out.exists())
+
     def test_bad_source_stops_with_message(self):
-        console = FakeConsole([])
-        code = run(methods_folder=Path(self.temp_dir.name) / "нет такой папки", out_path=self.out,
-                   input_fn=console.input, print_fn=console.print)
+        code, console = self.run_console([], methods_folder=Path(self.temp_dir.name) / "нет такой папки")
         self.assertEqual(code, 1)
         self.assertIn("Не удалось загрузить методики", console.text)
         self.assertFalse(self.out.exists())
 
     def test_empty_source_stops_with_message(self):
-        console = FakeConsole([])
-        code = run(methods_folder=self.temp_dir.name, out_path=self.out,
-                   input_fn=console.input, print_fn=console.print)
+        code, console = self.run_console([], methods_folder=self.temp_dir.name)
         self.assertEqual(code, 1)
         self.assertIn("Нет ни одной методики", console.text)
 
     def test_cannot_save(self):
-        console = FakeConsole(FULL_INPUT)
-        code = run(out_path=Path(self.temp_dir.name) / "нет папки" / "portrait.json",
-                   input_fn=console.input, print_fn=console.print)
+        code, console = self.run_console(FULL_INPUT + [FINISH],
+                                         out_path=Path(self.temp_dir.name) / "нет папки" / "portrait.json")
         self.assertEqual(code, 1)
         self.assertIn("Не удалось сохранить результат", console.text)
 
@@ -193,6 +232,16 @@ class RunTests(unittest.TestCase):
             code = main(["--data", missing, "--out", str(self.out)])
         self.assertEqual(code, 1)
         self.assertIn("Не удалось загрузить методики", output.getvalue())
+
+    def test_all_20_real_methods(self):
+        # Полный прогон настоящих методик: на каждый вопрос — первый вариант (или текст «1»), в конце — «з»
+        session = SurveySession(JsonSource().load_methods())
+        console = FakeConsole([])
+        console.input = lambda prompt="": FINISH if session.is_finished() else "1"
+        self.assertTrue(run_survey(session, console.input, console.print))
+        self.assertIn("Методика 20 из 20", console.text)
+        results = session.finish()
+        self.assertEqual([result.status for result in results], [Status.OK] * 20)
 
 
 if __name__ == "__main__":
