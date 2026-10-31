@@ -28,17 +28,14 @@ from portrait.sources.json_source import JsonSource
 InputFn = Callable[[str], str]
 PrintFn = Callable[..., None]
 
-# Команды пользователя
-CMD_SKIP = "п"
+# Команды пользователя. Пропуска вопросов нет: на каждый вопрос нужно ответить.
 CMD_BACK = "н"
-CMD_NEXT = "д"
 CMD_FINISH = "з"
 CMD_HELP = "?"
 
 HELP_TEXT = (
     "Как отвечать: введите номер варианта, число или текст — в зависимости от вопроса.\n"
-    f"Команды: {CMD_SKIP} — пропустить вопрос, {CMD_BACK} — назад, "
-    f"{CMD_NEXT} — дальше без изменения ответа, {CMD_HELP} — помощь.\n"
+    f"Команды: {CMD_BACK} — назад к предыдущему вопросу, {CMD_HELP} — помощь.\n"
     f"Команда {CMD_FINISH} — завершить опрос — станет доступна, когда будут пройдены все методики."
 )
 
@@ -86,7 +83,7 @@ def show_question(question: Question, number: int, total: int,
     else:
         print_fn("  (введите ответ текстом)")
     if previous is not None:
-        print_fn(f"  Ваш ответ: {format_answer(question, previous)}  ({CMD_NEXT} — оставить)")
+        print_fn(f"  Ваш прежний ответ: {format_answer(question, previous)} — введите ответ заново")
 
 
 def parse_answer(question: Question, text: str) -> int | float | str:
@@ -165,10 +162,6 @@ def run_survey(session: SurveySession, input_fn: InputFn = input, print_fn: Prin
                 print_fn(HELP_TEXT)
             elif session.is_finished():
                 print_fn(f"! Введите {CMD_FINISH}, чтобы завершить опрос, или {CMD_BACK}, чтобы вернуться назад")
-            elif command == CMD_SKIP:
-                session.skip()
-            elif command == CMD_NEXT:
-                session.next()
             elif not text:
                 print_fn(f"! Введите ответ или команду ({CMD_HELP} — помощь)")
             else:

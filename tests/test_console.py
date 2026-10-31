@@ -125,7 +125,7 @@ class RunSurveyTests(unittest.TestCase):
 
     def test_back_from_end_screen_and_change_answer(self):
         session, console, completed = self.run_with(FULL_INPUT + ["н", "Другой ответ", FINISH])
-        self.assertIn("Ваш ответ: Взвешиваю за и против", console.text)
+        self.assertIn("Ваш прежний ответ: Взвешиваю за и против", console.text)
         self.assertEqual(session.grouped_answers()["m03"]["m03_q03"].value, "Другой ответ")
         self.assertTrue(completed)
 
@@ -134,26 +134,24 @@ class RunSurveyTests(unittest.TestCase):
         self.assertIn("! Введите номер варианта от 1 до 3", console.text)
         self.assertEqual(session.grouped_answers()["m01"]["m01_q01"], Answer("m01_q01", 1))
 
-    def test_skip(self):
-        session, _, completed = self.run_with(["п"] + FULL_INPUT[1:] + [FINISH])
+    def test_no_skip_and_no_next_commands(self):
+        # Пропустить вопрос или пройти дальше без ответа нельзя: «п» и «д» — не команды
+        session, console, completed = self.run_with(["п", "д"] + FULL_INPUT + [FINISH])
+        self.assertEqual(console.text.count("! Введите номер варианта от 1 до 3"), 2)
+        self.assertNotIn("пропустить", console.text)
         self.assertTrue(completed)
-        self.assertTrue(session.grouped_answers()["m01"]["m01_q01"].skipped)
-        self.assertEqual(session.finish()[0].status, Status.PARTIAL)
+        self.assertFalse(any(answer.skipped for answers in session.grouped_answers().values()
+                             for answer in answers.values()))
+        self.assertEqual([result.status for result in session.finish()], [Status.OK] * 3)
 
-    def test_back_shows_previous_answer_and_changes_it(self):
+    def test_back_shows_previous_answer_and_requires_answer_again(self):
         session, console, _ = self.run_with(["1", "н", "3"] + FULL_INPUT[1:] + [FINISH])
-        self.assertIn("Ваш ответ: 1 — Не согласен", console.text)
+        self.assertIn("Ваш прежний ответ: 1 — Не согласен — введите ответ заново", console.text)
         self.assertEqual(session.grouped_answers()["m01"]["m01_q01"].value, 3)
 
-    def test_back_then_keep_answer(self):
-        session, _, completed = self.run_with(["2", "н", "д"] + FULL_INPUT[1:] + [FINISH])
-        self.assertEqual(session.grouped_answers()["m01"]["m01_q01"].value, 2)
-        self.assertTrue(completed)
-
-    def test_session_errors_are_shown(self):
-        _, console, _ = self.run_with(["н", "д"] + FULL_INPUT + [FINISH])
+    def test_back_on_first_question(self):
+        _, console, _ = self.run_with(["н"] + FULL_INPUT + [FINISH])
         self.assertIn("! Вы уже находитесь на первом вопросе", console.text)
-        self.assertIn("Ответьте на вопрос", console.text)
 
     def test_empty_input_and_help(self):
         _, console, _ = self.run_with(["", "?"] + FULL_INPUT + [FINISH])
